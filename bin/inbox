@@ -1,0 +1,92 @@
+#!/bin/sh
+# inbox — send events to a Claude Code session, or listen for them.
+#
+#   inbox send   [--tag T] [-n] <session|latest> [event...]   append an event (stdin: one per line)
+#   inbox listen <session|latest>                             receive events (run inside a Monitor)
+#   inbox path   <session|latest>                             print the inbox file path
+#
+# An inbox is a file under $CLAUDE_INBOX_DIR (default /tmp/claude-inbox).
+set -e
+dir=${CLAUDE_INBOX_DIR:-/tmp/claude-inbox}
+resolve() { case $1 in */*) printf '%s' "$1" ;; *) printf '%s/%s' "$dir" "$1" ;; esac; }
+
+cmd=${1:-}; [ $# -gt 0 ] && shift
+case $cmd in
+  send)
+    tag= new=
+    while [ $# -gt 0 ]; do
+      case $1 in
+        --tag) [ $# -ge 2 ] || { echo 'inbox send: --tag needs a value' >&2; exit 2; }; tag=$2; shift 2 ;;
+        -n) new=1; shift ;;
+        --) shift; break ;;
+        -*) echo "inbox send: unknown option $1" >&2; exit 2 ;;
+        *) break ;;
+      esac
+    done
+    [ $# -ge 1 ] || { echo 'usage: inbox send [--tag T] [-n] <session|latest> [event...]' >&2; exit 2; }
+    box=$(resolve "$1"); shift
+    [ -L "$box" ] && box=$(readlink "$box")
+    if [ ! -e "$box" ]; then
+      [ -n "$new" ] || { echo "inbox: no inbox at $box (create with -n, or ls $dir)" >&2; exit 1; }
+      mkdir -p "$(dirname "$box")"; : > "$box"
+    fi
+    if ! { [ -s "$box.listener" ] && kill -0 "$(cat "$box.listener")" 2>/dev/null; }; then
+      echo "inbox: nobody listening on $box yet — event queued" >&2
+    fi
+    emit() {
+      [ -n "$1" ] || return 0
+      if [ -n "$tag" ]; then printf '%s [%s] %s\n' "$(date +%H:%M)" "$tag" "$1" >> "$box"
+      else printf '%s %s\n' "$(date +%H:%M)" "$1" >> "$box"; fi
+    }
+    if [ $# -gt 0 ]; then emit "$*"
+    else while IFS= read -r line; do emit "$line"; done; fi
+    ;;
+  listen)
+    [ $# -ge 1 ] || { echo 'usage: inbox listen <session|latest>' >&2; exit 2; }
+    box=$(resolve "$1"); [ -L "$box" ] && box=$(readlink "$box")
+    [ -f "$box" ] || { echo "inbox: no inbox at $box" >&2; exit 1; }
+    seen_f=$box.seen lst_f=$box.listener
+    n=$(cat "$seen_f" 2>/dev/null || true); case $n in ''|*[!0-9]*) n=0 ;; esac
+    total=$(wc -l < "$box" | tr -d ' ')
+    [ "$n" -le "$total" ] || n=0
+    tmp=$(mktemp)
+    trap 'rm -f "$lst_f" "$tmp"' EXIT
+    trap 'exit 143' INT TERM
+    printf '%s\n' $$ > "$lst_f"
+    wait_change() {
+      if command -v inotifywait >/dev/null 2>&1; then inotifywait -qq -t 2 -e modify "$box" 2>/dev/null || true
+      else sleep 0.5; fi
+    }
+    while :; do
+      cur=$(wc -l < "$box" 2>/dev/null | tr -d ' ')
+      [ -n "$cur" ] || { sleep 1; continue; }
+      if [ "$cur" -lt "$n" ]; then n=0; total=0; fi
+      if [ "$cur" -gt "$n" ]; then
+        tail -n +$((n + 1)) "$box" > "$tmp"
+        while IFS= read -r line; do
+          n=$((n + 1))
+          if [ "$n" -le "$total" ]; then printf '(queued) %s\n' "$line"; else printf '%s\n' "$line"; fi
+          printf '%s\n' "$n" > "$seen_f"
+        done < "$tmp"
+      fi
+      wait_change
+    done
+    ;;
+  path)
+    [ $# -ge 1 ] || { echo 'usage: inbox path <session|latest>' >&2; exit 2; }
+    box=$(resolve "$1"); [ -L "$box" ] && box=$(readlink "$box"); printf '%s\n' "$box"
+    ;;
+  -h|--help|'')
+    cat <<'U'
+inbox — send events to a Claude Code session, or listen for them.
+
+  inbox send   [--tag T] [-n] <session|latest> [event...]   append an event (stdin: one per line)
+  inbox listen <session|latest>                             receive events (run inside a Monitor)
+  inbox path   <session|latest>                             print the inbox file path
+
+Inbox files live under $CLAUDE_INBOX_DIR (default /tmp/claude-inbox).
+U
+    [ "$cmd" = -h ] || [ "$cmd" = --help ]
+    ;;
+  *) echo "inbox: unknown command '$cmd' (send | listen | path)" >&2; exit 2 ;;
+esac

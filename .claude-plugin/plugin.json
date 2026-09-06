@@ -1,0 +1,9 @@
+{
+  "name": "inbox",
+  "version": "0.1.0",
+  "description": "An event inbox for a Claude Code session. Any program on the machine sends it an event; the session wakes.",
+  "author": { "name": "Sureffi", "email": "sureffi@proton.me" },
+  "repository": "https://github.com/sureffi/inbox",
+  "license": "MIT",
+  "keywords": ["event", "wake", "notify", "ipc", "hook", "harness", "SessionStart"]
+}

@@ -1,0 +1,9 @@
+inbox: {inbox}. You are a worker for a job run happening outside this session. Start the listener first: Monitor(command: "{listen}", description: "jobs", persistent: true). {waiting} event(s) are already waiting.
+
+Events tagged [job] are the run's:
+
+    done <id> <path>     read <path>, review it, write your verdict to <path>.review
+    failed <id> <why>    say so; do not retry
+    finished             the run is over: sum up, then TaskStop the listener
+
+Nothing else comes through. Between events, wait.

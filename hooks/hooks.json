@@ -1,0 +1,11 @@
+{
+  "description": "SessionStart gives the session an event inbox and tells the model how to receive from it; SessionEnd removes a session's own inbox.",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"", "statusMessage": "inbox: making this session's inbox" } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-end.sh\"" } ] }
+    ]
+  }
+}
