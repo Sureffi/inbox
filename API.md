@@ -1,8 +1,5 @@
 # inbox — reference
 
-Everything the tool does, in the order a program meets it: address an inbox, send to it,
-say what the events mean, check who is there, and what the session sees.
-
 ## address
 
 One argument, `<inbox>`, everywhere:
