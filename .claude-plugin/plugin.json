@@ -1,6 +1,6 @@
 {
   "name": "inbox",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "An event inbox for a Claude Code session. Any program on the machine sends it an event; the session wakes.",
   "author": { "name": "Sureffi", "email": "sureffi@proton.me" },
   "repository": "https://github.com/sureffi/inbox",

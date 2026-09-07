@@ -5,6 +5,8 @@ here=$(cd "$(dirname "$0")/.." && pwd -P)
 export CLAUDE_INBOX_DIR=$(mktemp -d)
 PATH=$here/bin:$PATH
 out=$CLAUDE_INBOX_DIR/out
+lp=
+trap 'kill $lp 2>/dev/null' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 settle() { sleep "${1:-1}"; }
 
@@ -76,12 +78,25 @@ p = contract(sys.argv[2], "hello {name}")
 assert p.endswith("/py.contract") and open(p).read() == "hello {name}\n", p
 PY
 inbox contract py | grep -q '^hello py$'                         || fail "python contract helper"
+python3 - "$here" py <<'PY'
+import sys; sys.path.insert(0, sys.argv[1]); from inbox import send, path
+send(sys.argv[2], "")
+assert open(path(sys.argv[2])).read() == "", "empty event was written"
+PY
+inbox send --tag x py "one" 2>/dev/null
+python3 - "$here" py <<'PY'
+import sys; sys.path.insert(0, sys.argv[1]); from inbox import status
+s = status(sys.argv[2])
+assert s["listener"] is None and s["delivered"] == 0 and s["waiting"] == 1 and s["contract"].endswith("/py.contract"), s
+PY
 
 # --- ls, path, missing
 inbox ls > "$CLAUDE_INBOX_DIR/ls"
 grep -q '^s  *idle  *0 waiting$' "$CLAUDE_INBOX_DIR/ls"       || fail "ls s: $(cat "$CLAUDE_INBOX_DIR/ls")"
-grep -q '^py  *idle  *0 waiting  (contract)$' "$CLAUDE_INBOX_DIR/ls" || fail "ls py: $(cat "$CLAUDE_INBOX_DIR/ls")"
+grep -q '^py  *idle  *1 waiting  (contract)$' "$CLAUDE_INBOX_DIR/ls" || fail "ls py: $(cat "$CLAUDE_INBOX_DIR/ls")"
 inbox send nope "x" 2>/dev/null && fail "sent to an inbox that doesn't exist"
+inbox contract "" 2>/dev/null && fail "empty name accepted"
+inbox status "$CLAUDE_INBOX_DIR" 2>/dev/null && fail "directory accepted as an inbox"
 inbox path s | grep -q "^$CLAUDE_INBOX_DIR/s$"                || fail "path subcommand"
 rm -rf "$CLAUDE_INBOX_DIR"
 echo "inbox: ok"

@@ -17,7 +17,9 @@ self=$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")
 resolve() { case $1 in */*) printf '%s' "$1" ;; *) printf '%s/%s' "$dir" "$1" ;; esac; }
 # box, name: the inbox file and how the session refers to it
 locate() {
+  [ -n "$1" ] || { echo "inbox: an inbox name is required" >&2; exit 2; }
   box=$(resolve "$1"); [ -L "$box" ] && box=$(readlink "$box")
+  [ ! -d "$box" ] || { echo "inbox: $box is a directory, not an inbox" >&2; exit 1; }
   case $box in "$dir"/*) name=$(basename "$box") ;; *) name=$box ;; esac
 }
 count() {  # total, seen, waiting for $box
@@ -126,7 +128,7 @@ case $cmd in
       if [ "$2" = - ]; then cat > "$box.contract.tmp"; else cat "$2" > "$box.contract.tmp"; fi
       mv -f "$box.contract.tmp" "$box.contract"          # one atomic swap: a listener sees old or new, never half
     else
-      [ -e "$box" ] || { echo "inbox: no inbox at $box" >&2; exit 1; }
+      [ -f "$box" ] || { echo "inbox: no inbox at $box" >&2; exit 1; }
       f=$(contract_file)
       if [ -n "$f" ]; then fill "$f"; else default_contract; fi
     fi

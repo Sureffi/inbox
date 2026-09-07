@@ -3,7 +3,7 @@
   "owner": { "name": "Sureffi", "email": "sureffi@proton.me" },
   "description": "inbox, from its own repository.",
   "plugins": [
-    { "name": "inbox", "source": "./", "version": "0.2.0",
+    { "name": "inbox", "source": "./", "version": "0.2.1",
       "description": "An event inbox for a Claude Code session. Any program sends it an event; the session wakes." }
   ]
 }

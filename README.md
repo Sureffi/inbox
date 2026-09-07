@@ -85,66 +85,52 @@ a fire-hose.
 
 ## telling the session what events mean
 
-An event is a line of text from another process. By itself it means nothing; the session
-has to be told, by the right party. That telling is the **contract**: a short text, written by
-whoever owns the inbox, that the session reads before the first event lands — and again at
-every point where it could have been lost.
+An event is a line of text from another process. What it means is set by the contract: a
+text file beside the inbox, written by whoever owns the inbox, read by the session.
 
-    inbox contract jobs-1 worker.contract     # set it; makes the inbox if it isn't there yet
-    INBOX=jobs-1 claude                       # the session starts with it
+    inbox contract jobs-1 worker.contract     # makes the inbox if it isn't there
+    INBOX=jobs-1 claude
 
-`inbox contract <session> -` takes the text on stdin. Writing `/tmp/claude-inbox/<name>.contract`
-by hand is the same thing; `INBOX_CONTRACT=/path` points at a file instead. In the text,
-`{inbox}`, `{name}`, `{listen}`, `{send}` and `{waiting}` are filled in at delivery.
-`inbox contract <session>` with no file prints the filled text, as the session will see it.
+`-` in place of the file reads stdin. `<inbox>.contract` written by hand is the same thing.
+`INBOX_CONTRACT=/path` names a file to use when there is no `.contract`. `inbox contract
+<inbox>` prints it filled. `{inbox}`, `{name}`, `{listen}`, `{send}` and `{waiting}` are
+filled at delivery.
 
-### when it lands
+Delivered:
 
-- **At session start.** The plugin's SessionStart hook prints it into context in place of
-  the default `inbox:` line.
-- **After compaction, and on resume.** The same hook fires on both, so the meaning is
-  re-stated exactly when context was thrown away. It does not fade.
-- **At the top of the listener's stream.** `inbox listen` prints `(contract)` and the text
-  before any event. A session that joins a named inbox later, with `/inbox <name>`, gets
-  the contract without having been started with it.
-- **When it changes while listening.** The listener watches the contract file. A rewrite
-  arrives as `(new contract)` and the new text, within two seconds. So a program can attach
-  meaning to a session it did not start — `inbox contract latest worker.contract` — or change
-  what events mean between phases of a run. Removing the file arrives as `(contract withdrawn)`.
+- at session start, resume, clear and compaction, by the SessionStart hook, in place of
+  the default `inbox:` line
+- at the top of the listener's stream, as `(contract)` and the text, before any event
+- when the file changes while listening, as `(new contract)` and the text, within two
+  seconds; when it is removed, as `(contract withdrawn)`
 
-`inbox contract` writes with one atomic swap: a listener sees the old text or the new, never
-half. One listener per inbox — a second `inbox listen` on the same inbox exits and names the
-pid that has it, so a re-stated "listen" after compaction cannot start a rival.
+Writes go through a temp file and one rename. One listener per inbox: a second `inbox
+listen` exits and names the pid.
 
 ### writing one
 
-`examples/jobs/worker.contract` is the shape. Four moves, in this order:
+`examples/jobs/worker.contract`:
 
-1. **What this is.** One sentence: whose events, what is happening outside.
-   *You are a worker for a job run happening outside this session.*
-2. **Listen.** The exact command, filled, so nothing has to be composed:
-   *Listen with Monitor(command: "{listen}", description: "jobs", persistent: true).*
-   `{waiting}` says how many events are already there.
-3. **The vocabulary.** One line per shape of event and what to do with each. The tag names
-   the stream (`[job]`), the first word names the shape (`done`, `failed`, `finished`), an
-   id ties it to work the session fired, the rest is payload.
-4. **Between, and after.** What to do while nothing arrives (usually: wait), and which
-   event ends it (`finished`: sum up, TaskStop the listener). *Nothing else comes through*,
-   when true, stops the session guessing at lines it was not told about.
+    inbox: {inbox}. You are a worker for a job run happening outside this session. Listen
+    with Monitor(command: "{listen}", description: "jobs", persistent: true). {waiting}
+    event(s) are already waiting.
 
-Write it to read right wherever it lands — at start, after a compaction, at the top of the
-stream — not only the first time. "Listen with X" ages better than "start now".
+    Events tagged [job] are the run's:
 
-### the principle
+        done <id> <path>     read <path>, review it, write your verdict to <path>.review
+        failed <id> <why>    say so; do not retry
+        finished             the run is over: sum up, then TaskStop the listener
 
-Meaning belongs to the owner of the inbox, not to the sender of an event. An event carries
-data; the contract carries instructions. A program that wants a session to do something new
-writes a new contract, not a cleverer event. A session that receives an event it was not told
-about treats it as a message from outside, nothing more.
+    Nothing else comes through. Between events, wait.
 
-That is also the security stance. Anyone who can write an inbox can send it text; only
-whoever can write the `.contract` beside it says what the text means. On one machine that is
-the same user either way, so it is a design line rather than a wall — but it is the line.
+What this is. The listen command, filled. One line per event shape: tag names the stream,
+first word names the shape, id ties it to work the session fired, the rest is payload. What
+to do between events, and which one ends it. It lands more than once, so it is written to
+read right each time.
+
+Meaning belongs to the owner of the inbox, not to the sender of an event. An event is data.
+A program that wants the session to do something new writes a new contract. An event the
+contract did not name is a message from outside, nothing more.
 
 ## examples
 
@@ -152,6 +138,11 @@ the same user either way, so it is a design line rather than a wall — but it i
 - `examples/jobs` — a job runner that starts a session with instructions, sends it `done <id>`
   as each job finishes, and `finished` at the end. The shape a runner uses to fan out parallel
   work and hear each piece finish.
+- `examples/roundtrip` — the whole programmatic API from Python: a contract written in code,
+  jobs fanned out, and the session's acks read back on the runner's own inbox.
+
+`API.md` is the reference: every command, flag, file, line format, exit code, and both
+libraries.
 
 ## how it works
 
