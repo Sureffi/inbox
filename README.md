@@ -9,6 +9,8 @@ This is the piece Claude Code is missing: a way for your own code — a job runn
 a cron job, a music player, a program that drives Claude — to push an event into a running
 session, on its own schedule, without the session having to poll or watch for it.
 
+Reference for every command, file, line format and both libraries: [`API.md`](API.md).
+
 ## install
 
     /plugin marketplace add sureffi/inbox
@@ -141,10 +143,9 @@ contract did not name is a message from outside, nothing more.
 - `examples/roundtrip` — the whole programmatic API from Python: a contract written in code,
   jobs fanned out, and the session's acks read back on the runner's own inbox.
 
-`API.md` is the reference: every command, flag, file, line format, exit code, and both
-libraries.
-
 ## how it works
+
+The short version; [`API.md`](API.md) has all of it.
 
 An inbox is a plain file. `inbox send` appends one line — atomic, never blocks, works from
 any language. `inbox listen` follows the file inside a Monitor, and each new line becomes an
