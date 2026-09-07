@@ -8,13 +8,22 @@
 #   inbox ls                                         every inbox
 #   inbox path   <inbox>                             print the inbox file path
 #
-# <inbox> is a session id, a name, `latest`, or a full path.
-# Inboxes are files under $CLAUDE_INBOX_DIR (default /tmp/claude-inbox).
+# <inbox> is a session id, a name, `latest`, `self` (the session this process was started
+# by), or a full path. Inboxes are files under $CLAUDE_INBOX_DIR (default /tmp/claude-inbox).
 set -e
 dir=${CLAUDE_INBOX_DIR:-/tmp/claude-inbox}
 self=$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")
 
-resolve() { case $1 in */*) printf '%s' "$1" ;; *) printf '%s/%s' "$dir" "$1" ;; esac; }
+resolve() {
+  case $1 in
+    self)  # the session this process was started by: named by INBOX, else its session id
+      n=${INBOX:-$CLAUDE_CODE_SESSION_ID}
+      [ -n "$n" ] || { echo "inbox: self needs CLAUDE_CODE_SESSION_ID (or INBOX) in the environment — not started by a session?" >&2; exit 1; }
+      printf '%s/%s' "$dir" "$n" ;;
+    */*) printf '%s' "$1" ;;
+    *) printf '%s/%s' "$dir" "$1" ;;
+  esac
+}
 # box, name: the inbox file and how the session refers to it
 locate() {
   [ -n "$1" ] || { echo "inbox: an inbox name is required" >&2; exit 2; }
@@ -167,8 +176,8 @@ inbox — send events to a Claude Code session, or listen for them.
   inbox ls                                         every inbox
   inbox path   <inbox>                             print the inbox file path
 
-<inbox> is a session id, a name, `latest`, or a full path.
-Inboxes are files under $CLAUDE_INBOX_DIR (default /tmp/claude-inbox).
+<inbox> is a session id, a name, `latest`, `self` (the session this process was started
+by), or a full path. Inboxes are files under $CLAUDE_INBOX_DIR (default /tmp/claude-inbox).
 U
     [ "$cmd" = -h ] || [ "$cmd" = --help ]
     ;;

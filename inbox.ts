@@ -17,8 +17,17 @@ export function inboxDir(): string {
   return process.env.CLAUDE_INBOX_DIR ?? "/tmp/claude-inbox";
 }
 
-/** Absolute inbox path for a session id/name, "latest", or a full path. */
+/**
+ * Absolute inbox path for a session id/name, "latest", "self", or a full path.
+ * "self" is the session this process was started by: INBOX if set, else
+ * CLAUDE_CODE_SESSION_ID, both inherited from the session's environment.
+ */
 export function path(session: string): string {
+  if (session === "self") {
+    const own = process.env.INBOX || process.env.CLAUDE_CODE_SESSION_ID;
+    if (!own) throw new Error("inbox: 'self' needs CLAUDE_CODE_SESSION_ID (or INBOX) in the environment — not started by a session?");
+    session = own;
+  }
   const p = session.includes("/") ? session : join(inboxDir(), session);
   try {
     if (lstatSync(p).isSymbolicLink()) return realpathSync(p);

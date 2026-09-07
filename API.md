@@ -7,11 +7,14 @@ One argument, `<inbox>`, everywhere:
 | argument | resolves to |
 |---|---|
 | contains `/` | that path, as given |
+| `self` | `$CLAUDE_INBOX_DIR/$INBOX`, else `$CLAUDE_INBOX_DIR/$CLAUDE_CODE_SESSION_ID`: the session this process was started by. Exit `1` if neither is set |
 | anything else | `$CLAUDE_INBOX_DIR/<inbox>` |
 | a symlink (`latest`) | its target |
 
 `CLAUDE_INBOX_DIR` defaults to `/tmp/claude-inbox`. `latest` points at the newest session's
-inbox. An empty name is a usage error; a directory is refused.
+inbox. Claude Code sets `CLAUDE_CODE_SESSION_ID` for every process a session starts, MCP
+servers included, so a program started by a session uses `self` and can address no other
+session by accident. An empty name is a usage error; a directory is refused.
 
 ## send
 
@@ -125,6 +128,7 @@ Same user only. Permissions are the file's.
 | variable | read by | effect |
 |---|---|---|
 | `CLAUDE_INBOX_DIR` | everything | where inboxes live; default `/tmp/claude-inbox` |
+| `CLAUDE_CODE_SESSION_ID` | `self` | set by Claude Code in every process a session starts |
 | `INBOX` | hooks | name the session's inbox `<INBOX>` instead of its session id; such an inbox is not removed at session end |
 | `INBOX_CONTRACT` | `contract`, `listen`, `status`, libraries | contract file to use when `<inbox>.contract` does not exist |
 
@@ -158,7 +162,7 @@ from inbox import send, contract, status, path, inbox_dir
 | `send(session, event, tag=None, create=False)` | inbox path; an empty event writes nothing | `FileNotFoundError` if missing and not `create` |
 | `contract(session, text)` | contract path; creates the inbox; atomic write; adds a trailing newline if absent | |
 | `status(session)` | `{"path", "listener", "delivered", "waiting", "contract"}` — `listener` a pid or `None`, `contract` a path or `None` | `FileNotFoundError` |
-| `path(session)` | resolved inbox path, symlinks followed | |
+| `path(session)` | resolved inbox path, symlinks followed; `"self"` per the address rules | `LookupError` for `"self"` outside a session |
 | `inbox_dir()` | `CLAUDE_INBOX_DIR` or the default | |
 
 `send` does not warn about a missing listener; `status()` says. There is no `listen()`:
@@ -177,7 +181,7 @@ import { send, contract, status, path, inboxDir } from "./inbox";
 | `send(session, event, { tag?, create? })` | inbox path; an empty event writes nothing | `Error` if missing and not `create` |
 | `contract(session, text)` | contract path; creates the inbox; atomic write; adds a trailing newline if absent | |
 | `status(session)` | `Status { path, listener, delivered, waiting, contract }` — `listener` a pid or `null`, `contract` a path or `null` | `Error` |
-| `path(session)` | resolved inbox path | |
+| `path(session)` | resolved inbox path; `"self"` per the address rules | `Error` for `"self"` outside a session |
 | `inboxDir()` | `CLAUDE_INBOX_DIR` or the default | |
 
 ## any language

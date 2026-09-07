@@ -17,7 +17,15 @@ def inbox_dir():
     return os.environ.get("CLAUDE_INBOX_DIR", "/tmp/claude-inbox")
 
 def path(session):
-    """Absolute inbox path for a session name, `latest`, or a full path."""
+    """Absolute inbox path for a session id/name, "latest", "self", or a full path.
+
+    "self" is the session this process was started by: INBOX if set, else
+    CLAUDE_CODE_SESSION_ID, both inherited from the session's environment.
+    """
+    if session == "self":
+        session = os.environ.get("INBOX") or os.environ.get("CLAUDE_CODE_SESSION_ID")
+        if not session:
+            raise LookupError("inbox: 'self' needs CLAUDE_CODE_SESSION_ID (or INBOX) in the environment — not started by a session?")
     p = session if "/" in session else os.path.join(inbox_dir(), session)
     return os.path.realpath(p) if os.path.islink(p) else p
 

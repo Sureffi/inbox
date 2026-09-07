@@ -6,7 +6,7 @@ export CLAUDE_INBOX_DIR=$(mktemp -d)
 PATH=$here/bin:$PATH
 out=$CLAUDE_INBOX_DIR/out
 lp=
-trap 'kill $lp 2>/dev/null' EXIT
+trap '[ -z "$lp" ] || kill $lp 2>/dev/null || true' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 settle() { sleep "${1:-1}"; }
 
@@ -98,5 +98,12 @@ inbox send nope "x" 2>/dev/null && fail "sent to an inbox that doesn't exist"
 inbox contract "" 2>/dev/null && fail "empty name accepted"
 inbox status "$CLAUDE_INBOX_DIR" 2>/dev/null && fail "directory accepted as an inbox"
 inbox path s | grep -q "^$CLAUDE_INBOX_DIR/s$"                || fail "path subcommand"
+CLAUDE_CODE_SESSION_ID=sid-1 inbox path self | grep -q "^$CLAUDE_INBOX_DIR/sid-1$" || fail "self from session id"
+INBOX=named CLAUDE_CODE_SESSION_ID=sid-1 inbox path self | grep -q "^$CLAUDE_INBOX_DIR/named$" || fail "self prefers INBOX"
+env -u INBOX -u CLAUDE_CODE_SESSION_ID inbox path self 2>/dev/null && fail "self resolved with no session in the environment"
+CLAUDE_CODE_SESSION_ID=sid-1 python3 - "$here" <<'PY'
+import sys, os; sys.path.insert(0, sys.argv[1]); from inbox import path
+assert path("self").endswith("/sid-1"), path("self")
+PY
 rm -rf "$CLAUDE_INBOX_DIR"
 echo "inbox: ok"

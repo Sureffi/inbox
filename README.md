@@ -53,7 +53,8 @@ program can do it three ways:
   `printf '%s\n' "task 3 done" >> /tmp/claude-inbox/<session>` — no dependency at all.
 
 `<session>` is a session id, a name you gave with `INBOX=<name>`, `latest` (the newest
-session), or a full path. `--tag`/`tag=` prefixes the event with a label the session can
+session), `self` (the session that started this process — Claude Code puts the session id in
+the environment of everything it starts, MCP servers included), or a full path. `--tag`/`tag=` prefixes the event with a label the session can
 match on.
 
 `inbox ls` shows every inbox, whether anyone is listening, and how many events wait.
@@ -142,6 +143,9 @@ contract did not name is a message from outside, nothing more.
   work and hear each piece finish.
 - `examples/roundtrip` — the whole programmatic API from Python: a contract written in code,
   jobs fanned out, and the session's acks read back on the runner's own inbox.
+- `examples/mcp` — an engine behind an MCP server, bound to the one session that started it
+  through `self`. Tool calls return at once; the work reports back as events, per call
+  switchable off.
 
 ## how it works
 
