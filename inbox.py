@@ -1,7 +1,8 @@
 """inbox — send events to a Claude Code session from Python.
 
-    from inbox import send
-    send("latest", "task 3 done", tag="task")
+    from inbox import send, contract
+    contract("jobs-1", open("worker.contract").read())   # what the events will mean
+    send("jobs-1", "done 3 /tmp/out", tag="job")    # an event
 
 An inbox is a file under $CLAUDE_INBOX_DIR (default /tmp/claude-inbox). Sending an
 event is appending one line, so this has no dependency on the `inbox` CLI and never
@@ -19,6 +20,13 @@ def path(session):
     p = session if "/" in session else os.path.join(inbox_dir(), session)
     return os.path.realpath(p) if os.path.islink(p) else p
 
+def _ensure(p, create):
+    if not os.path.exists(p):
+        if not create:
+            raise FileNotFoundError(f"no inbox at {p} (pass create=True, or: inbox ls)")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, "a").close()
+
 def send(session, event, tag=None, create=False):
     """Append one event to a session's inbox. Returns the inbox path.
 
@@ -28,13 +36,24 @@ def send(session, event, tag=None, create=False):
     create   make the inbox if it does not exist (default: error if missing)
     """
     p = path(session)
-    if not os.path.exists(p):
-        if not create:
-            raise FileNotFoundError(f"no inbox at {p} (pass create=True, or ls {inbox_dir()})")
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        open(p, "a").close()
+    _ensure(p, create)
     stamp = time.strftime("%H:%M")
     line = f"{stamp} [{tag}] {event}\n" if tag else f"{stamp} {event}\n"
     with open(p, "a") as f:
         f.write(line)
     return p
+
+def contract(session, text):
+    """Set what events on this inbox mean. Makes the inbox if it does not exist.
+
+    The session reads the text at start, after every compaction, at the top of its
+    listener's stream, and again whenever it changes. {inbox} {name} {listen} {send}
+    {waiting} inside it are filled in at delivery. Written as one atomic swap.
+    """
+    p = path(session)
+    _ensure(p, True)
+    tmp = p + ".contract.tmp"
+    with open(tmp, "w") as f:
+        f.write(text if text.endswith("\n") else text + "\n")
+    os.replace(tmp, p + ".contract")
+    return p + ".contract"

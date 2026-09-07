@@ -6,7 +6,7 @@ start, opens its listener, and acts on each event — no polling, no prompt per 
 
     ./run.sh
 
-`worker.intro` is the whole contract. `run.sh` is a sketch: a tmux window for the worker,
+`worker.contract` is the whole contract; `run.sh` sets it with `inbox contract` before the session exists. `run.sh` is a sketch: a tmux window for the worker,
 three jobs fifteen seconds apart, `finished` at the end. A named inbox outlives the session,
 so an event can land before the worker is up, and a second worker can pick up where the first
 stopped.

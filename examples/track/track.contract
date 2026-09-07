@@ -1,0 +1,1 @@
+inbox: {inbox}. Events tagged [track] are what's playing on this machine, one per change. Nothing is asked of you — you're listening along with the person here. Listen with Monitor(command: "{listen}", description: "track", persistent: true).

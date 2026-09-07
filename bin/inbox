@@ -1,14 +1,54 @@
 #!/bin/sh
 # inbox — send events to a Claude Code session, or listen for them.
 #
-#   inbox send   [--tag T] [-n] <session|latest> [event...]   append an event (stdin: one per line)
-#   inbox listen <session|latest>                             receive events (run inside a Monitor)
-#   inbox path   <session|latest>                             print the inbox file path
+#   inbox send   [--tag T] [-n] <inbox> [event...]   append an event (stdin: one per line)
+#   inbox listen <inbox>                             receive events (run inside a Monitor)
+#   inbox contract  <inbox> [file|-]                    print what events mean, or set it
+#   inbox status <inbox>                             listener, events waiting, contract
+#   inbox ls                                         every inbox
+#   inbox path   <inbox>                             print the inbox file path
 #
-# An inbox is a file under $CLAUDE_INBOX_DIR (default /tmp/claude-inbox).
+# <inbox> is a session id, a name, `latest`, or a full path.
+# Inboxes are files under $CLAUDE_INBOX_DIR (default /tmp/claude-inbox).
 set -e
 dir=${CLAUDE_INBOX_DIR:-/tmp/claude-inbox}
+self=$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")
+
 resolve() { case $1 in */*) printf '%s' "$1" ;; *) printf '%s/%s' "$dir" "$1" ;; esac; }
+# box, name: the inbox file and how the session refers to it
+locate() {
+  box=$(resolve "$1"); [ -L "$box" ] && box=$(readlink "$box")
+  case $box in "$dir"/*) name=$(basename "$box") ;; *) name=$box ;; esac
+}
+count() {  # total, seen, waiting for $box
+  total=$(wc -l < "$box" 2>/dev/null | tr -d ' '); [ -n "$total" ] || total=0
+  seen=$(cat "$box.seen" 2>/dev/null || true); case $seen in ''|*[!0-9]*) seen=0 ;; esac
+  [ "$seen" -le "$total" ] || seen=0
+  waiting=$((total - seen))
+}
+listener_pid() {  # prints the live listener's pid, or nothing
+  p=$(cat "$box.listener" 2>/dev/null || true)
+  case $p in ''|*[!0-9]*) return 0 ;; esac
+  kill -0 "$p" 2>/dev/null && printf '%s' "$p" || true
+}
+contract_file() {  # the contract that applies to $box: next to it, or $INBOX_CONTRACT
+  if [ -f "$box.contract" ]; then printf '%s' "$box.contract"
+  elif [ -n "$INBOX_CONTRACT" ] && [ -f "$INBOX_CONTRACT" ]; then printf '%s' "$INBOX_CONTRACT"; fi
+}
+fill() {  # print $1 with {inbox} {name} {listen} {send} {waiting} filled in — plain text, no regex
+  count
+  I_="$box" N_="$name" L_="$self listen $name" S_="$self send $name" W_="$waiting" awk '
+    function rep(s, k, v,  o, i) { o = ""; while ((i = index(s, k)) > 0) { o = o substr(s, 1, i - 1) v; s = substr(s, i + length(k)) } return o s }
+    { $0 = rep($0, "{inbox}", ENVIRON["I_"]); $0 = rep($0, "{name}", ENVIRON["N_"])
+      $0 = rep($0, "{listen}", ENVIRON["L_"]); $0 = rep($0, "{send}", ENVIRON["S_"])
+      $0 = rep($0, "{waiting}", ENVIRON["W_"]); print }' "$1"
+}
+default_contract() {
+  count
+  printf 'inbox: this session has an event inbox at %s. Any program on this machine can send it an event: `inbox send %s <message>` (or `inbox send latest ...`) — it arrives here as an event. Nothing is received until you listen: run /inbox, or Monitor(command: "inbox listen %s", persistent: true). Open it when the user asks or events are expected.' "$box" "$name" "$name"
+  [ "$waiting" -gt 0 ] && printf ' %s event(s) already waiting.' "$waiting"
+  printf '\n'
+}
 
 cmd=${1:-}; [ $# -gt 0 ] && shift
 case $cmd in
@@ -23,16 +63,13 @@ case $cmd in
         *) break ;;
       esac
     done
-    [ $# -ge 1 ] || { echo 'usage: inbox send [--tag T] [-n] <session|latest> [event...]' >&2; exit 2; }
-    box=$(resolve "$1"); shift
-    [ -L "$box" ] && box=$(readlink "$box")
+    [ $# -ge 1 ] || { echo 'usage: inbox send [--tag T] [-n] <inbox> [event...]' >&2; exit 2; }
+    locate "$1"; shift
     if [ ! -e "$box" ]; then
-      [ -n "$new" ] || { echo "inbox: no inbox at $box (create with -n, or ls $dir)" >&2; exit 1; }
+      [ -n "$new" ] || { echo "inbox: no inbox at $box (create with -n, or: inbox ls)" >&2; exit 1; }
       mkdir -p "$(dirname "$box")"; : > "$box"
     fi
-    if ! { [ -s "$box.listener" ] && kill -0 "$(cat "$box.listener")" 2>/dev/null; }; then
-      echo "inbox: nobody listening on $box yet — event queued" >&2
-    fi
+    [ -n "$(listener_pid)" ] || echo "inbox: nobody listening on $box yet — event queued" >&2
     emit() {
       [ -n "$1" ] || return 0
       if [ -n "$tag" ]; then printf '%s [%s] %s\n' "$(date +%H:%M)" "$tag" "$1" >> "$box"
@@ -42,19 +79,23 @@ case $cmd in
     else while IFS= read -r line; do emit "$line"; done; fi
     ;;
   listen)
-    [ $# -ge 1 ] || { echo 'usage: inbox listen <session|latest>' >&2; exit 2; }
-    box=$(resolve "$1"); [ -L "$box" ] && box=$(readlink "$box")
+    [ $# -ge 1 ] || { echo 'usage: inbox listen <inbox>' >&2; exit 2; }
+    locate "$1"
     [ -f "$box" ] || { echo "inbox: no inbox at $box" >&2; exit 1; }
+    p=$(listener_pid)
+    [ -z "$p" ] || { echo "inbox: already listening on $box (pid $p) — one listener per inbox" >&2; exit 1; }
     seen_f=$box.seen lst_f=$box.listener
-    n=$(cat "$seen_f" 2>/dev/null || true); case $n in ''|*[!0-9]*) n=0 ;; esac
-    total=$(wc -l < "$box" | tr -d ' ')
-    [ "$n" -le "$total" ] || n=0
+    count; n=$seen
     tmp=$(mktemp)
     trap 'rm -f "$lst_f" "$tmp"' EXIT
     trap 'exit 143' INT TERM
     printf '%s\n' $$ > "$lst_f"
+    # the contract comes first, and again whenever it changes: meaning travels with the stream
+    read_contract() { f=$(contract_file); if [ -n "$f" ]; then s=$(cksum < "$f"); else s=; fi; }
+    read_contract; sig=$s
+    [ -z "$sig" ] || { printf '(contract)\n'; fill "$f"; }
     wait_change() {
-      if command -v inotifywait >/dev/null 2>&1; then inotifywait -qq -t 2 -e modify "$box" 2>/dev/null || true
+      if command -v inotifywait >/dev/null 2>&1; then inotifywait -qq -t 2 -e modify,close_write,move_self,delete_self "$box" ${f:+"$f"} 2>/dev/null || true
       else sleep 0.5; fi
     }
     while :; do
@@ -69,24 +110,65 @@ case $cmd in
           printf '%s\n' "$n" > "$seen_f"
         done < "$tmp"
       fi
+      read_contract
+      if [ "$s" != "$sig" ]; then
+        sig=$s
+        if [ -n "$s" ]; then printf '(new contract)\n'; fill "$f"; else printf '(contract withdrawn) events are plain messages from outside\n'; fi
+      fi
       wait_change
     done
     ;;
+  contract)
+    [ $# -ge 1 ] || { echo 'usage: inbox contract <inbox> [file|-]   (print what events mean, or set it)' >&2; exit 2; }
+    locate "$1"
+    if [ $# -ge 2 ]; then
+      mkdir -p "$(dirname "$box")"; [ -e "$box" ] || : > "$box"
+      if [ "$2" = - ]; then cat > "$box.contract.tmp"; else cat "$2" > "$box.contract.tmp"; fi
+      mv -f "$box.contract.tmp" "$box.contract"          # one atomic swap: a listener sees old or new, never half
+    else
+      [ -e "$box" ] || { echo "inbox: no inbox at $box" >&2; exit 1; }
+      f=$(contract_file)
+      if [ -n "$f" ]; then fill "$f"; else default_contract; fi
+    fi
+    ;;
+  status)
+    [ $# -ge 1 ] || { echo 'usage: inbox status <inbox>' >&2; exit 2; }
+    locate "$1"
+    [ -f "$box" ] || { echo "inbox: no inbox at $box" >&2; exit 1; }
+    count; p=$(listener_pid); f=$(contract_file)
+    printf 'inbox     %s\n' "$box"
+    if [ -n "$p" ]; then printf 'listener  pid %s\n' "$p"; else printf 'listener  none — events queue\n'; fi
+    printf 'events    %s delivered, %s waiting\n' "$seen" "$waiting"
+    printf 'contract  %s\n' "${f:-none (default text)}"
+    ;;
+  ls)
+    [ -d "$dir" ] || exit 0
+    for box in "$dir"/*; do
+      [ -f "$box" ] && [ ! -L "$box" ] && [ ! -x "$box" ] || continue
+      case $box in *.seen|*.listener|*.contract|*.contract.tmp) continue ;; esac
+      count; p=$(listener_pid)
+      printf '%-40s %-12s %s waiting%s\n' "$(basename "$box")" "${p:+listening}${p:-idle}" "$waiting" "$( [ -f "$box.contract" ] && printf '  (contract)')"
+    done
+    ;;
   path)
-    [ $# -ge 1 ] || { echo 'usage: inbox path <session|latest>' >&2; exit 2; }
-    box=$(resolve "$1"); [ -L "$box" ] && box=$(readlink "$box"); printf '%s\n' "$box"
+    [ $# -ge 1 ] || { echo 'usage: inbox path <inbox>' >&2; exit 2; }
+    locate "$1"; printf '%s\n' "$box"
     ;;
   -h|--help|'')
     cat <<'U'
 inbox — send events to a Claude Code session, or listen for them.
 
-  inbox send   [--tag T] [-n] <session|latest> [event...]   append an event (stdin: one per line)
-  inbox listen <session|latest>                             receive events (run inside a Monitor)
-  inbox path   <session|latest>                             print the inbox file path
+  inbox send   [--tag T] [-n] <inbox> [event...]   append an event (stdin: one per line)
+  inbox listen <inbox>                             receive events (run inside a Monitor)
+  inbox contract  <inbox> [file|-]                    print what events mean, or set it
+  inbox status <inbox>                             listener, events waiting, contract
+  inbox ls                                         every inbox
+  inbox path   <inbox>                             print the inbox file path
 
-Inbox files live under $CLAUDE_INBOX_DIR (default /tmp/claude-inbox).
+<inbox> is a session id, a name, `latest`, or a full path.
+Inboxes are files under $CLAUDE_INBOX_DIR (default /tmp/claude-inbox).
 U
     [ "$cmd" = -h ] || [ "$cmd" = --help ]
     ;;
-  *) echo "inbox: unknown command '$cmd' (send | listen | path)" >&2; exit 2 ;;
+  *) echo "inbox: unknown command '$cmd' (send | listen | contract | status | ls | path)" >&2; exit 2 ;;
 esac

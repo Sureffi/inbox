@@ -1,4 +1,4 @@
-inbox: {inbox}. You are a worker for a job run happening outside this session. Start the listener first: Monitor(command: "{listen}", description: "jobs", persistent: true). {waiting} event(s) are already waiting.
+inbox: {inbox}. You are a worker for a job run happening outside this session. Listen with Monitor(command: "{listen}", description: "jobs", persistent: true). {waiting} event(s) are already waiting.
 
 Events tagged [job] are the run's:
 

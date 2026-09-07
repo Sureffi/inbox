@@ -5,9 +5,9 @@ set -e
 name=jobs-$$
 dir=${CLAUDE_INBOX_DIR:-/tmp/claude-inbox}
 mkdir -p "$dir" /tmp/jobs
-cp "$(dirname "$0")/worker.intro" "$dir/$name.intro"
-inbox send -n --tag job "$name" "run started, 3 jobs"     # before the session exists: waits in the inbox
-tmux new-window -n worker "INBOX=$name claude"            # reads its intro at start, opens the listener
+inbox contract "$name" "$(dirname "$0")/worker.contract"     # what the events will mean; makes the inbox
+inbox send --tag job "$name" "run started, 3 jobs"        # before the session exists: waits in the inbox
+tmux new-window -n worker "INBOX=$name claude"            # reads its contract at start, opens the listener
 for id in 1 2 3; do
   sleep 15
   printf 'result of job %s\n' "$id" > "/tmp/jobs/$id.out"

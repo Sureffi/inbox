@@ -54,6 +54,9 @@ program can do it three ways:
 session), or a full path. `--tag`/`tag=` prefixes the event with a label the session can
 match on.
 
+`inbox ls` shows every inbox, whether anyone is listening, and how many events wait.
+`inbox status <session>` shows one in detail — the thing a runner checks before it fires.
+
 ## receiving events (the session side)
 
 `/inbox` starts a listener on the session's own inbox: a persistent Monitor running
@@ -82,20 +85,66 @@ a fire-hose.
 
 ## telling the session what events mean
 
-At session start the plugin adds one paragraph to the session's context. By default it says:
-you have an inbox here, this is how to listen.
+An event is a line of text from another process. By itself it means nothing; the session
+has to be told, by the right party. That telling is the **contract**: a short text, written by
+whoever owns the inbox, that the session reads before the first event lands — and again at
+every point where it could have been lost.
 
-A program that starts sessions can replace that paragraph, so the session knows before the
-first event what it is receiving and what to do with each:
+    inbox contract jobs-1 worker.contract     # set it; makes the inbox if it isn't there yet
+    INBOX=jobs-1 claude                       # the session starts with it
 
-- write the text to `/tmp/claude-inbox/<name>.intro`, then start the session with
-  `INBOX=<name> claude`
-- or point `INBOX_INTRO=/path/to/text` at it
-- `{inbox}`, `{listen}`, `{send}`, `{name}` and `{waiting}` in the text are filled in
+`inbox contract <session> -` takes the text on stdin. Writing `/tmp/claude-inbox/<name>.contract`
+by hand is the same thing; `INBOX_CONTRACT=/path` points at a file instead. In the text,
+`{inbox}`, `{name}`, `{listen}`, `{send}` and `{waiting}` are filled in at delivery.
+`inbox contract <session>` with no file prints the filled text, as the session will see it.
 
-`INBOX=<name>` gives the session an inbox with that name instead of its session id. A named
-inbox is not removed when the session ends — the program that made it owns it. A session-id
-inbox is removed.
+### when it lands
+
+- **At session start.** The plugin's SessionStart hook prints it into context in place of
+  the default `inbox:` line.
+- **After compaction, and on resume.** The same hook fires on both, so the meaning is
+  re-stated exactly when context was thrown away. It does not fade.
+- **At the top of the listener's stream.** `inbox listen` prints `(contract)` and the text
+  before any event. A session that joins a named inbox later, with `/inbox <name>`, gets
+  the contract without having been started with it.
+- **When it changes while listening.** The listener watches the contract file. A rewrite
+  arrives as `(new contract)` and the new text, within two seconds. So a program can attach
+  meaning to a session it did not start — `inbox contract latest worker.contract` — or change
+  what events mean between phases of a run. Removing the file arrives as `(contract withdrawn)`.
+
+`inbox contract` writes with one atomic swap: a listener sees the old text or the new, never
+half. One listener per inbox — a second `inbox listen` on the same inbox exits and names the
+pid that has it, so a re-stated "listen" after compaction cannot start a rival.
+
+### writing one
+
+`examples/jobs/worker.contract` is the shape. Four moves, in this order:
+
+1. **What this is.** One sentence: whose events, what is happening outside.
+   *You are a worker for a job run happening outside this session.*
+2. **Listen.** The exact command, filled, so nothing has to be composed:
+   *Listen with Monitor(command: "{listen}", description: "jobs", persistent: true).*
+   `{waiting}` says how many events are already there.
+3. **The vocabulary.** One line per shape of event and what to do with each. The tag names
+   the stream (`[job]`), the first word names the shape (`done`, `failed`, `finished`), an
+   id ties it to work the session fired, the rest is payload.
+4. **Between, and after.** What to do while nothing arrives (usually: wait), and which
+   event ends it (`finished`: sum up, TaskStop the listener). *Nothing else comes through*,
+   when true, stops the session guessing at lines it was not told about.
+
+Write it to read right wherever it lands — at start, after a compaction, at the top of the
+stream — not only the first time. "Listen with X" ages better than "start now".
+
+### the principle
+
+Meaning belongs to the owner of the inbox, not to the sender of an event. An event carries
+data; the contract carries instructions. A program that wants a session to do something new
+writes a new contract, not a cleverer event. A session that receives an event it was not told
+about treats it as a message from outside, nothing more.
+
+That is also the security stance. Anyone who can write an inbox can send it text; only
+whoever can write the `.contract` beside it says what the text means. On one machine that is
+the same user either way, so it is a design line rather than a wall — but it is the line.
 
 ## examples
 
@@ -111,7 +160,8 @@ any language. `inbox listen` follows the file inside a Monitor, and each new lin
 event. A cursor in `<inbox>.seen` means nothing is delivered twice or lost between listeners.
 `<inbox>.listener` holds the listener's pid, so a send can warn when nobody is listening.
 With `inotifywait` installed, delivery is immediate; otherwise the listener checks twice a
-second.
+second. The listener also carries the contract: first in its stream, and again whenever the
+`.contract` file changes.
 
 Same user only: inboxes are files with normal permissions. An event is text from another
 process — the session treats it as data, and the start-of-session text says what to do with
